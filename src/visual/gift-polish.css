@@ -1,0 +1,7 @@
+/* UI/UX Pro Max: touch feedback and readable mobile copy. */
+button{touch-action:manipulation}
+.flower-receive{min-width:220px;transition:background .2s,box-shadow .2s}
+.flower-receive:active{box-shadow:inset 0 2px 7px #35233040}
+.flower-receive:focus-visible{outline:3px solid #6b354e;outline-offset:5px}
+.flower-caption{min-height:24px}
+@media(max-width:500px){.home-copy>p:not(.home-greeting),.about-row p,.journey p,.reminder-stage>p,.memory-body p,.memory-empty p{font-size:16px}.scene-instruction,.space-footer small,.example-label{font-size:12px}}

@@ -1,0 +1,22 @@
+/* A landscape postcard becomes the backdrop to the letter, not a reading gate. */
+.surprise-journey{--sea:#759e9b;--mist:#dbe8e0;position:relative;isolation:isolate;min-width:0;padding:32px 16px;background:var(--paper);border-radius:48% 48% 18px 18px / 14% 14% 18px 18px}
+.letter-landscape{position:relative;max-width:640px;margin:0 auto -15px;overflow:hidden;border-radius:46% 46% 0 0}
+.letter-landscape svg{display:block;width:100%;height:auto;background:var(--sand)}
+.journey-sun{fill:var(--paper);transition:transform 1s ease}
+.journey-clouds{fill:var(--paper);opacity:.8;transition:transform 1.1s ease}
+.journey-coast{fill:var(--sea);transition:opacity 1s ease,transform 1.1s ease}
+.journey-coast path:not(:first-child){fill:none;stroke:var(--paper);stroke-width:3;opacity:.7}
+.journey-mountains{opacity:0;transform:translateY(80px);transition:transform 1.1s cubic-bezier(.2,.7,.2,1),opacity 1s ease;fill:#8ca99b}
+.journey-mountains>path:nth-child(2){fill:#5f8373}.journey-pines{fill:var(--pine)}
+[data-chapter="mountains"] .journey-mountains,[data-chapter="letter"] .journey-mountains{opacity:1;transform:none}
+[data-chapter="mountains"] .journey-coast,[data-chapter="letter"] .journey-coast{opacity:0;transform:translateY(40px)}
+[data-chapter="mountains"] .journey-clouds,[data-chapter="letter"] .journey-clouds{transform:translateX(28px)}
+[data-chapter="mountains"] .journey-sun,[data-chapter="letter"] .journey-sun{transform:translateY(16px)}
+.surprise-journey .envelope-wrap{padding:35px 0 5px;min-height:195px}
+.surprise-journey .letter-reveal{padding:0;position:relative;margin-top:-14px}
+.surprise-journey .letter-paper{margin:0 auto;max-width:100%;white-space:pre-line}
+.journey-status{text-align:center;font-size:14px;margin:24px 0 12px;min-height:26px}
+.surprise-actions{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:12px}
+.surprise-actions .button{white-space:normal}
+@media(max-width:760px){.surprise-journey{padding:24px 12px}.surprise-journey .letter-paper{padding:26px 22px}.surprise-section{gap:30px}.journey-status{font-size:14px}}
+@media(prefers-reduced-motion:reduce){.letter-landscape *{transition:none!important}.surprise-journey .letter-paper{animation:none}}

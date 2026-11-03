@@ -2,7 +2,29 @@ import type { Memory } from '../lib/storage'
 
 // Your one personalization file. Empty fields are intentionally not invented.
 // Photos should be local paths in public/photos, e.g. /photos/portrait.webp.
-export const personal = {
+export interface Reminder { title: string; text: string; category: string }
+export interface GalleryPhoto { src: string; alt: string; caption: string }
+export interface PersonalContent {
+  name: string
+  occasion: string
+  greeting: string
+  message: string
+  signature: string
+  portrait: string
+  portraitAlt: string
+  about: string
+  interests: string[]
+  dreams: string[]
+  favoriteThings: string[]
+  favoriteColors: string[]
+  favoriteFlowers: string[]
+  journey: string
+  reminders: Reminder[]
+  gallery: GalleryPhoto[]
+  memories: Memory[]
+}
+
+export const personal: PersonalContent = {
   name: '', // ADD NAME OR NICKNAME
   occasion: '',
   greeting: 'There’s a little space for you here.',
@@ -13,7 +35,9 @@ export const personal = {
   about: '',
   interests: [] as string[],
   dreams: [] as string[],
-  favoriteThings: [] as string[],
+  favoriteThings: [],
+  favoriteColors: [], // Optional preferences, not assumptions about her.
+  favoriteFlowers: [],
   journey: 'From La Union’s coast to the mountains of Baguio. A nursing student, with a whole world beyond the classroom.',
   reminders: [
     { title: 'You don’t have to do it all today.', text: 'One small step is still a step. There is room to begin again tomorrow.', category: 'For busy days' },

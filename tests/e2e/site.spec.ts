@@ -56,7 +56,8 @@ test('mobile navigation, keyboard dialog, reduced motion, layout and accessibili
  for (const route of ['home','about','reminders','memories','surprise']) {
   await page.goto('/#'+route)
   expect(await page.locator(`#${route}`).count()).toBeGreaterThan(0)
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  const widthCheck = await page.evaluate(() => ({scrollWidth:document.documentElement.scrollWidth, innerWidth, offenders:[...document.querySelectorAll('body *')].map(el=>({tag:el.tagName,cls:typeof el.className==='string'?el.className:'',id:el.id,right:Math.round(el.getBoundingClientRect().right),left:Math.round(el.getBoundingClientRect().left)})).filter(x=>x.right>innerWidth+1||x.left< -1).slice(0,8)}))
+  expect(widthCheck.scrollWidth <= widthCheck.innerWidth, JSON.stringify(widthCheck)).toBe(true)
   const result = await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21a','wcag21aa']).analyze()
   expect(result.violations).toEqual([])
  }

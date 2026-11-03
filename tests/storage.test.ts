@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mergeMemories, exportBackup, loadMemories, saveMemories, STORAGE_KEY, parseBackup, validateMemory } from '../src/lib/storage'
+import { mergeMemories, exportBackup, loadMemories, saveMemories, STORAGE_KEY, parseBackup, validateMemory, readMemoryPhoto } from '../src/lib/storage'
 const memory = {id:'a', title:'Walk', date:'2026-01-02', story:'Moment'}
 const backup = (memories: unknown[]) => JSON.stringify({version:1,memories})
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
@@ -54,7 +54,55 @@ describe('exports', () => {
   expect(output.click).not.toHaveBeenCalled()
  })
 })
+describe('photo reading', () => {
+ it('rejects invalid files before creating a reader', async () => {
+  const Reader = vi.fn()
+  vi.stubGlobal('FileReader', Reader)
+  await expect(readMemoryPhoto(new File(['text'], 'fake.png', {type:'text/plain'}))).rejects.toThrow(/JPEG/i)
+  expect(Reader).not.toHaveBeenCalled()
+ })
+ it('aborts an obsolete read and ignores its later completion', async () => {
+  const reader = {readAsDataURL:vi.fn(),abort:vi.fn(),onload:null as null | (() => void),onerror:null,onabort:null,result:'data:image/png;base64,AQID'}
+  vi.stubGlobal('FileReader',class { constructor() { return reader } })
+  const controller = new AbortController()
+  const reading = readMemoryPhoto(new File(['photo'], 'day.png', {type:'image/png'}),controller.signal)
+  const rejection = expect(reading).rejects.toMatchObject({name:'AbortError'})
+  controller.abort()
+  reader.onload?.()
+  await rejection
+  expect(reader.abort).toHaveBeenCalledOnce()
+ })
+ it('returns a validated photo and removes handlers after reading', async () => {
+  const reader = {readAsDataURL:vi.fn(),abort:vi.fn(),onload:null as null | (() => void),onerror:null,onabort:null,result:'data:image/png;base64,AQID'}
+  vi.stubGlobal('FileReader',class { constructor() { return reader } })
+  const reading = readMemoryPhoto(new File(['photo'], 'day.png', {type:'image/png'}))
+  reader.onload?.()
+  await expect(reading).resolves.toBe(reader.result)
+  expect(reader.onload).toBeNull()
+ })
+ it('rejects read failures and synchronous browser errors', async () => {
+  const reader = {readAsDataURL:vi.fn(),abort:vi.fn(),onload:null,onerror:null as null | (() => void),onabort:null,result:null}
+  vi.stubGlobal('FileReader',class { constructor() { return reader } })
+  const reading = readMemoryPhoto(new File(['photo'], 'day.png', {type:'image/png'}))
+  reader.onerror?.()
+  await expect(reading).rejects.toThrow(/could not be read/i)
+  reader.readAsDataURL.mockImplementation(()=>{throw new Error('unavailable')})
+  await expect(readMemoryPhoto(new File(['photo'], 'day.png', {type:'image/png'}))).rejects.toThrow(/could not be read/i)
+ })
+ it('rejects malformed reader results rather than accepting an invalid preview', async () => {
+  const reader = {readAsDataURL:vi.fn(),abort:vi.fn(),onload:null as null | (() => void),onerror:null,onabort:null,result:'data:image/svg+xml;base64,AQID'}
+  vi.stubGlobal('FileReader',class { constructor() { return reader } })
+  const reading = readMemoryPhoto(new File(['photo'], 'day.png', {type:'image/png'}))
+  reader.onload?.()
+  await expect(reading).rejects.toThrow(/JPEG/i)
+ })
+})
 describe('merge', () => {
+ it('keeps supplied records separate while importing local additions', () => {
+  const supplied = [{...memory,id:'supplied'}]
+  expect(mergeMemories([], [supplied[0],memory], supplied)).toEqual([memory])
+  expect(mergeMemories([memory], [{...memory,title:'Replacement'},supplied[0]], supplied)).toEqual([memory])
+ })
  it('preserves existing IDs, appends new IDs and does not mutate inputs', () => {
   const incoming = [{...memory,title:'Replacement'},{...memory,id:'b'}]
   expect(mergeMemories([memory],incoming)).toEqual([memory,incoming[1]])
@@ -118,6 +166,10 @@ describe('memory validation', () => {
   for (const photo of ['/photos/../secret.png','/photos/a/../../x.jpg','/photos/%2e%2e/x.png','/photos//x.png','/photos/x.svg','data:image/png;base64,====','data:image/png;base64,a','data:image/svg+xml;base64,AAAA']) {
    expect(() => validateMemory({id:'a',title:'Walk',date:'2026-01-02',story:'Moment',photo}), photo).toThrow()
   }
+ })
+ it('accepts a photo at the advertised 2 MiB limit without overflowing validation', () => {
+  const photo = 'data:image/png;base64,' + Buffer.alloc(2 * 1024 * 1024).toString('base64')
+  expect(validateMemory({...memory,photo}).photo).toBe(photo)
  })
  it('limits photos to 2 MiB decoded and backup JSON to 12 MB UTF-8', () => {
   const photo = 'data:image/png;base64,' + 'AAAA'.repeat(699051)

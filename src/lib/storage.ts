@@ -23,6 +23,35 @@ export function validateMemory(value: unknown): Memory {
  }
  return result
 }
+/** Read a browser-local photo; cancellation makes obsolete selections harmless. */
+export async function readMemoryPhoto(file: File, signal?: AbortSignal): Promise<string> {
+ if (!['image/jpeg','image/png','image/webp'].includes(file.type) || file.size > 2 * 1024 * 1024 || file.size === 0) throw new Error('Choose a JPEG, PNG, or WebP photo up to 2 MB.')
+ if (signal?.aborted) throw new DOMException('Photo reading cancelled.', 'AbortError')
+ return new Promise((resolve,reject) => {
+  const reader = new FileReader()
+  const cleanup = () => {
+   signal?.removeEventListener('abort',abort)
+   reader.onload = reader.onerror = reader.onabort = null
+  }
+  const abort = () => {
+   cleanup()
+   reader.abort()
+   reject(new DOMException('Photo reading cancelled.', 'AbortError'))
+  }
+  reader.onload = () => {
+   cleanup()
+   try {
+    const photo = validateMemory({id:'photo',title:'Photo',date:'2000-01-01',story:'Photo',photo:reader.result}).photo
+    if (!photo?.startsWith(`data:${file.type};base64,`)) throw new Error('Use a JPEG, PNG or WebP photo up to 2 MB.')
+    resolve(photo)
+   } catch (error) { reject(error) }
+  }
+  reader.onerror = () => { cleanup(); reject(new Error('This photo could not be read. Try another file.')) }
+  reader.onabort = () => { cleanup(); reject(new DOMException('Photo reading cancelled.', 'AbortError')) }
+  signal?.addEventListener('abort',abort,{once:true})
+  try { reader.readAsDataURL(file) } catch { cleanup(); reject(new Error('This photo could not be read. Try another file.')) }
+ })
+}
 export function parseBackup(text: string): Memory[] {
  if(typeof text !== 'string' || text.length>12000000 || new TextEncoder().encode(text).byteLength>12000000) throw new Error('This backup is too large (maximum 12 MB).')
  let data: unknown
@@ -34,10 +63,10 @@ export function parseBackup(text: string): Memory[] {
  return memories
 }
 /** Import policy: existing IDs win; matching incoming IDs are skipped, not updated. */
-export function mergeMemories(existing: Memory[], incoming: Memory[]): Memory[] {
+export function mergeMemories(existing: Memory[], incoming: Memory[], supplied: Memory[] = []): Memory[] {
  const current = parseBackup(JSON.stringify({version:1,memories:existing}))
  const additions = parseBackup(JSON.stringify({version:1,memories:incoming}))
- const ids = new Set(current.map(memory => memory.id))
+ const ids = new Set([...current,...supplied].map(memory => memory.id))
  return parseBackup(JSON.stringify({version:1,memories:[...current,...additions.filter(memory => !ids.has(memory.id))]}))
 }
 export function loadMemories(): {memories:Memory[]; error:string} {

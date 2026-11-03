@@ -4,11 +4,13 @@ import { createBouquet } from './createBouquet'
 import './carnations.css'
 
 export default function Carnations(){
- const host=useRef<HTMLDivElement>(null), received=useRef(false), redraw=useRef<()=>void>(()=>{}),[gift,setGift]=useState(false)
+ const host=useRef<HTMLDivElement>(null), received=useRef(false), redraw=useRef<()=>void>(()=>{}),[gift,setGift]=useState(false),[giftUnavailable,setGiftUnavailable]=useState(false)
  useEffect(()=>{
   const el=host.current!
   let renderer:T.WebGLRenderer
-  try{renderer=new T.WebGLRenderer({alpha:true,antialias:true,powerPreference:'low-power'})}catch{return}
+  try{renderer=new T.WebGLRenderer({alpha:true,antialias:true,powerPreference:'low-power'})}catch{const timeout=setTimeout(()=>setGiftUnavailable(true),0);return()=>clearTimeout(timeout)}
+  const contextLost=()=>setGiftUnavailable(true)
+  renderer.domElement.addEventListener('webglcontextlost',contextLost)
   renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=1.05;renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFSoftShadowMap;renderer.setClearColor('#e8e7db',1);el.appendChild(renderer.domElement)
   const scene=new T.Scene(),camera=new T.PerspectiveCamera(34,1,.1,50)
   camera.position.set(0,.4,8.7);camera.lookAt(0,.1,0)
@@ -37,8 +39,9 @@ export default function Carnations(){
   const observer=new IntersectionObserver(([e])=>{visible=e.isIntersecting;if(visible)draw();else cancelAnimationFrame(frame)});observer.observe(el)
   const lost=(e:Event)=>{e.preventDefault();renderer.domElement.style.display='none'}
   renderer.domElement.addEventListener('webglcontextlost',lost);window.addEventListener('scroll',draw,{passive:true});document.addEventListener('visibilitychange',draw);reduced.addEventListener('change',draw);draw()
-  return()=>{timer.dispose();mixer.stopAllAction();mixer.uncacheRoot(bouquet);stopped=true;redraw.current=()=>{};cancelAnimationFrame(frame);resize.disconnect();observer.disconnect();window.removeEventListener('scroll',draw);document.removeEventListener('visibilitychange',draw);reduced.removeEventListener('change',draw);dispose();floor.geometry.dispose();floor.material.dispose();renderer.dispose();renderer.domElement.remove()}
+  return()=>{timer.dispose();mixer.stopAllAction();mixer.uncacheRoot(bouquet);stopped=true;redraw.current=()=>{};cancelAnimationFrame(frame);resize.disconnect();observer.disconnect();window.removeEventListener('scroll',draw);document.removeEventListener('visibilitychange',draw);reduced.removeEventListener('change',draw);dispose();floor.geometry.dispose();floor.material.dispose();renderer.dispose();renderer.domElement.removeEventListener('webglcontextlost',contextLost);renderer.domElement.remove()}
  },[])
  const toggle=()=>{received.current=!received.current;setGift(received.current);redraw.current()}
- return <div className="flower-gift"><div ref={host} className="carnation-scene" data-gift={gift?'received':'offered'} role="img" aria-label="A wrapped bouquet of five pink carnations with layered ruffled petals, offered toward you"><div className="carnation-fallback" aria-hidden="true"><span>✿</span><span>✿</span><span>✿</span><i/><b>╲│╱</b></div></div><button className="button primary flower-receive" aria-pressed={gift} onClick={toggle}>{gift?'Offer the flowers again':'Receive your carnations'}</button><p className="flower-caption" role="status">{gift?'For you. No occasion needed.':'A small bouquet, from me to you.'}</p></div>
-}
+  return <div className="flower-gift"><div ref={host} className="carnation-scene" data-gift={gift?'received':'offered'} role="img" aria-label="A wrapped bouquet of five pink carnations with layered ruffled petals, offered toward you"><div className="carnation-fallback" aria-hidden="true"><span>✿</span><span>✿</span><i/><b>╲│╱</b></div></div>{giftUnavailable&&<p role="status" className="flower-fallback-note">A little illustrated bouquet, just for you. (3D isn’t available on this device.)</p>}<button className="button primary flower-receive" aria-pressed={gift} onClick={toggle}>{gift?'Offer the flowers again':'Receive your carnations'}</button><p className="flower-caption" role="status">{gift?'For you. No occasion needed.':'A small bouquet, from me to you.'}</p></div>
+ }
+

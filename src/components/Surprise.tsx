@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Flower2, Heart, RotateCcw, Sparkles } from 'lucide-react'
-import { exampleLetter, personal } from '../data/personal'
+import { personal } from '../data/personal'
 import './surprise.css'
 
 type Chapter = 'waiting' | 'coast' | 'mountains' | 'letter'
@@ -41,7 +41,7 @@ export default function Surprise() {
           <g className="journey-mountains"><path d="M0 232 120 111 202 172 334 54 492 201 569 124 640 208V260H0Z"/><path d="m0 250 153-82 93 52 170-103 224 143Z"/><g className="journey-pines"><path d="m75 146-28 57h17l-27 43h76l-27-43h17Z"/><path d="m540 121-32 64h18l-30 52h88l-30-52h18Z"/><path d="m592 174-20 40h11l-19 32h56l-19-32h11Z"/></g></g>
         </svg>
       </div>
-      {chapter === 'letter' ? <div className="letter-reveal"><article className="letter-paper" aria-label="Your letter"><Flower2 size={30} strokeWidth={1.3} aria-hidden="true"/>{!personal.message && <small className="example-label">Example letter — replace with your own message</small>}<p>{personal.message || exampleLetter}</p><span>{personal.signature || 'With care'} <Heart size={14} aria-hidden="true"/></span></article></div> : <div className="envelope-wrap"><div className="envelope" aria-hidden="true"><div className="envelope-flap"/><span><Flower2 size={24}/></span></div></div>}
+      {chapter === 'letter' ? <div className="letter-reveal"><article className="letter-paper" aria-label="Your letter"><Flower2 size={30} strokeWidth={1.3} aria-hidden="true"/>{!personal.message && <small className="example-label">Your own words belong here</small>}<p>{personal.message || 'Your personal message has not been added yet. Add your letter in the personal content file.'}</p><span>{personal.signature || 'With care'} <Heart size={14} aria-hidden="true"/></span></article></div> : <div className="envelope-wrap"><div className="envelope" aria-hidden="true"><div className="envelope-flap"/><span><Flower2 size={24}/></span></div></div>}
       <p className="journey-status" role="status">{chapter === 'coast' ? 'A little sea breeze from La Union…' : chapter === 'mountains' ? 'Up through the mist and pines of Baguio…' : chapter === 'letter' ? 'A little note, here for you.' : 'A small journey. No sound needed.'}</p>
       <div className="surprise-actions"><button ref={action} className="button primary" onClick={() => { if (!revealing) start() }} aria-disabled={revealing}>{chapter === 'letter' ? <><RotateCcw size={16} aria-hidden="true"/>Replay surprise</> : <>{revealing ? 'Your letter is on its way…' : 'Open your letter'}<Sparkles size={16} aria-hidden="true"/></>}</button>{revealing && <button className="text-button" onClick={() => { setChapter('letter'); action.current?.focus() }}>Skip to letter</button>}</div>
     </div>

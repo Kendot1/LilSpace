@@ -1,4 +1,31 @@
 
+/* World-first arrival: the landscape, not a decorative hero, is the destination. */
+.home.world-welcome{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:32px;min-height:250px;padding-top:30px;padding-bottom:30px;isolation:auto}
+.home.world-welcome::before{content:none}
+.world-welcome .home-copy{min-width:0;max-width:760px}
+.home.world-welcome h1{font-size:clamp(32px,3.4vw,46px);line-height:1.12;letter-spacing:-.04em;max-width:none;margin-bottom:12px;overflow-wrap:anywhere}
+.world-welcome .home-welcome{margin-bottom:12px}
+.world-welcome .home-greeting{font-size:18px;line-height:1.6;margin-bottom:0;max-width:65ch}
+.world-welcome .occasion{margin:8px 0 0}
+.world-welcome .hero-actions{margin-top:0;flex-direction:column;align-items:flex-start;gap:6px;min-width:0}
+.world-loading{min-height:620px;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;background:#dbe8df;padding-top:40px;padding-bottom:40px}
+.world-loading p{max-width:40ch}
+@media(max-width:1100px){
+ .space-header .header-inner{min-height:77px}
+ .space-header .menu-button{display:grid;place-items:center;width:44px;height:44px;flex-shrink:0}
+ .space-header .header-inner nav{display:none;position:absolute;top:100%;left:0;right:0;background:#edf3ed;padding:15px 25px 25px;max-height:calc(100dvh - 77px);overflow:auto;border-bottom:1px solid #bdcfb9;box-shadow:0 16px 24px #3c573816}
+ .space-header .header-inner nav.open{display:grid}
+ .space-header .header-inner nav button{font-size:15px;text-align:left;min-height:48px}
+ html{scroll-padding-top:90px}
+}
+@media(max-width:760px){
+ .home.world-welcome{grid-template-columns:minmax(0,1fr);min-height:0;gap:16px;padding-top:24px;padding-bottom:24px}
+ .world-welcome .hero-actions{flex-direction:row;flex-wrap:wrap;align-items:center;gap:8px 18px}
+ .home.world-welcome h1{font-size:clamp(31px,6vw,40px)}
+ .world-welcome .home-greeting{font-size:17px}
+ .world-loading{min-height:580px}
+}
+
 /* Quiet editorial polish: a paper-and-tide palette, steady type, and a clear mountain-to-coast story. */
 .home{position:relative;min-height:min(760px,calc(100svh - 90px));padding-top:72px;padding-bottom:72px;align-items:center;isolation:isolate}
 .home::before{content:"";position:absolute;z-index:-1;inset:24px 26px 30px;border-radius:48% 52% 7% 7%/12% 12% 4% 4%;background:linear-gradient(155deg,#f4ead8 0%,#f4ead8 50%,#d7e9e1 50%,#d7e9e1 100%);opacity:.62}

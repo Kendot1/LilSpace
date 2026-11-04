@@ -6,6 +6,10 @@ import { STORAGE_KEY } from '../src/lib/storage'
 
 // A small hook harness exercises callbacks without adding a DOM dependency.
 const hooks = vi.hoisted(() => ({values:[] as unknown[], cursor:0}))
+vi.mock('../src/lib/indexed-memories', () => ({
+ loadIndexedMemories: async () => { try { return {memories:raw === null ? [] : JSON.parse(raw).memories,error:''} } catch { return {memories:[],error:'unreadable'} } },
+ saveIndexedMemories: async (memories:unknown[], options:{restore?:boolean} = {}) => { if(raw === '{broken' && !options.restore) throw new Error('unreadable'); raw=JSON.stringify({version:1,memories}) },
+}))
 vi.mock('react', async importOriginal => ({
  ...await importOriginal<typeof import('react')>(),
  useState:(initial:unknown) => {
@@ -13,6 +17,7 @@ vi.mock('react', async importOriginal => ({
   if (!(index in hooks.values)) hooks.values[index]=typeof initial==='function'?initial():initial
   return [hooks.values[index],(next:unknown)=>{hooks.values[index]=next}]
  },
+ useEffect:(effect:()=>void) => { const index=hooks.cursor++; if (!(index in hooks.values)) { hooks.values[index]=true; effect() } },
  useRef:(initial:unknown) => {
   const index=hooks.cursor++
   return hooks.values[index] ?? (hooks.values[index]={current:initial})
@@ -35,6 +40,13 @@ beforeEach(()=>{
 })
 const suppliedBefore = [...personal.memories]
 afterEach(()=>{personal.memories.splice(0,personal.memories.length,...suppliedBefore);vi.restoreAllMocks();vi.unstubAllGlobals()})
+it('exposes memory photos to screen readers with their associated title',async()=>{
+ raw=JSON.stringify({version:1,memories:[{...memory,photo:'data:image/png;base64,AQID'}]})
+ render()
+ await vi.waitFor(()=>expect(nodes(render()).some(node=>node.type==='img')).toBe(true))
+ const image=find(render(),node=>node.type==='img')
+ expect(image.props.alt).toBe('Photo for Walk')
+})
 it('does not erase a memory saved while an import file is still being read',async()=>{
  let finish!:(text:string)=>void
  const text=new Promise<string>(resolve=>{finish=resolve})

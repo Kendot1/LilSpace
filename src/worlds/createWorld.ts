@@ -1,4 +1,6 @@
 import * as THREE from 'three'
+import { personal } from '../data/personal'
+import { createLetterAnimation } from './letter-animation'
 import { journeyRoadX as roadX, journeyRoadY as roadY, journeyRoadPoint } from './journey-road'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 
@@ -6,19 +8,22 @@ export type World = 'coast' | 'journey' | 'mountain' | 'little-space'
 export type WorldAction = 'shell' | 'flower' | 'book' | 'letter' | 'gift' | 'memories' | 'photo' | 'star'
 
 /** All coordinates are world metres, +Z faces the visitor. Lighting/camera belong to the host. */
-export function createWorld(kind: World): {
+export function createWorld(kind: World, invalidate?: () => void): {
   group: THREE.Group
   targets: Array<{ id: WorldAction; object: THREE.Object3D; label: string }>
   update: (time: number, delta: number, reduced: boolean) => void
   dispose: () => void
   openGift: (progress: number) => void
   inspect: (id: WorldAction | undefined, progress: number) => void
+  turnMemoryPage: (direction: 1 | -1, progress: number) => void
 } {
   const group = new THREE.Group()
   group.name = `${kind}-landscape`
   const targets: Array<{ id: WorldAction; object: THREE.Object3D; label: string }> = []
   const geometries = new Set<THREE.BufferGeometry>()
   const materials = new Set<THREE.Material>()
+  const textures = new Set<THREE.Texture>()
+  const photoAbort = new AbortController()
   const animated: Array<(time: number) => void> = []
   let disposed = false
   let seed = 73421
@@ -52,8 +57,25 @@ export function createWorld(kind: World): {
   const box = geo(new THREE.BoxGeometry(1, 1, 1))
   const sphere = geo(new THREE.SphereGeometry(1, 12, 8))
   const cylinder = geo(new THREE.CylinderGeometry(1, 1, 1, 10))
-  const cone = geo(new THREE.ConeGeometry(1, 1, 10))
+  // One elongated, tapered bough instanced radially makes a forest silhouette
+  // with visible gaps and individual branches instead of stacked solid cones.
+  const pineBough = geo(new THREE.SphereGeometry(1, 12, 8))
+  const boughPositions = pineBough.attributes.position
+  for (let i = 0; i < boughPositions.count; i++) {
+    const x = boughPositions.getX(i)
+    boughPositions.setY(i, boughPositions.getY(i) * (.65 - .3 * x))
+  }
+  pineBough.computeVertexNormals()
   const petal = geo(new THREE.SphereGeometry(1, 10, 6))
+  // Close-up blossoms have a cupped rim; meadow instances keep a lighter mesh.
+  const detailedPetal = geo(new THREE.SphereGeometry(1, 16, 12))
+  const petalPositions = detailedPetal.attributes.position
+  for (let i = 0; i < petalPositions.count; i++) {
+    const x = petalPositions.getX(i), y = petalPositions.getY(i), z = petalPositions.getZ(i)
+    const taper = .72 + .28 * (1 - x * x)
+    petalPositions.setXYZ(i, x, y + .34 * x * x + .18 * z * z, z * taper)
+  }
+  detailedPetal.computeVertexNormals()
   const dummy = new THREE.Object3D()
   type InstanceBatch = { geometry: THREE.BufferGeometry; material: THREE.Material; matrices: THREE.Matrix4[] }
   const instances = new Map<string, InstanceBatch>()
@@ -97,18 +119,40 @@ export function createWorld(kind: World): {
       const x = positions.getX(i), zz = positions.getZ(i)
       positions.setY(i, height(x, zz))
       const shade = .91 + Math.sin(x * 1.72 + zz * .93) * .025 + random() * .09
-      tint.setRGB(shade, shade, shade)
+      // Wet sand cools and darkens near the tide line; higher ground is
+      // warmer. Elsewhere, restrained moss variation breaks up flat terrain.
+      if (coast) {
+        const dry = THREE.MathUtils.smoothstep(zz - shoreline(x), .2, 7)
+        tint.setRGB(shade * (.79 + dry * .21), shade * (.85 + dry * .15), shade * (.88 + dry * .06))
+      } else {
+        const moss = .5 + .5 * Math.sin(x * .19 + zz * .31)
+        tint.setRGB(shade * (.92 + moss * .05), shade, shade * (.92 + moss * .04))
+      }
       colors[i * 3] = tint.r; colors[i * 3 + 1] = tint.g; colors[i * 3 + 2] = tint.b
     }
     geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
     geometry.computeVertexNormals()
     const materialCopy = material.clone() as THREE.MeshStandardMaterial
     materialCopy.vertexColors = true; materials.add(materialCopy)
+    if (coast) {
+      // Fine wind-rippled grain is evaluated per fragment rather than adding
+      // thousands of individual beach meshes or an external texture.
+      materialCopy.onBeforeCompile = shader => {
+        shader.vertexShader = 'varying vec3 vSandPosition;\n' + shader.vertexShader
+        shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvSandPosition = position;')
+        shader.fragmentShader = 'varying vec3 vSandPosition;\n' + shader.fragmentShader
+        shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+          float ripple = sin(vSandPosition.z * 5.3 + sin(vSandPosition.x * .65) * 1.7) * .025;
+          float grain = fract(sin(dot(floor(vSandPosition.xz * 15.0), vec2(127.1,311.7))) * 43758.5453);
+          diffuseColor.rgb *= .95 + ripple + grain * .08;`)
+      }
+    }
     return mesh(name, geometry, materialCopy)
   }
   const shoreline = (x: number) => -2.8 + Math.sin(x * .21) * .9 + Math.sin(x * .48) * .2
   const groundHeight = (x: number, z: number) => coast
     ? -.24 + (z - shoreline(x)) * .055 + Math.sin(x * .4) * Math.sin(z * .45) * .025
+      + THREE.MathUtils.smoothstep(z - shoreline(x), 1, 8) * (.12 * Math.sin(x * .38 + z * .24) + .055 * Math.sin(x * .8 - z * .45))
     : -.08 + .12 * Math.sin(x * .35) * Math.cos(z * .27)
 
   function flower(parent: THREE.Object3D, x: number, y: number, z: number, scale: number, material = palette.cream) {
@@ -118,7 +162,7 @@ export function createWorld(kind: World): {
     leaf.rotation.z = .5
     for (let j = 0; j < 7; j++) {
       const a = j * Math.PI * 2 / 7
-      const p = mesh('petal', petal, material, f, Math.cos(a) * .16 * scale, .87 * scale, Math.sin(a) * .16 * scale,
+      const p = mesh('petal', detailedPetal, material, f, Math.cos(a) * .16 * scale, .87 * scale, Math.sin(a) * .16 * scale,
         .19 * scale, .055 * scale, .095 * scale)
       p.rotation.y = -a; p.rotation.z = -.12
     }
@@ -160,10 +204,17 @@ export function createWorld(kind: World): {
       if (kind === 'journey' && (Math.abs(x - roadX(z)) < 3.3 || x < -12 || (z > -8 && random() < .75))) continue
       const h = 2.5 + random() * 4.8, base = kind === 'journey' ? journeyHeight(x, z) : groundHeight(x, z)
       instance('pine-trunks', cylinder, palette.bark, x, base + h * .4, z, .11, h * .8, .11)
-      for (let j = 0; j < 5; j++) {
-        const s = 1 - j * .14
-        instance(j % 2 ? 'pine-lit-boughs' : 'pine-boughs', cone, j % 2 ? palette.lightLeaf : palette.leaf,
-          x, base + h * (.4 + j * .12), z, h * .29 * s, h * .47 * s, h * .29 * s, random() * 2)
+      const turn = random() * Math.PI * 2
+      for (let j = 0; j < 6; j++) {
+        const height = .28 + j * .105
+        const length = h * (.27 - j * .033)
+        for (let k = 0; k < 5; k++) {
+          const angle = turn + k * Math.PI * 2 / 5 + j * .55
+          const reach = length * .55
+          instance('pine-branch-canopies', pineBough, palette.leaf,
+            x + Math.cos(angle) * reach, base + h * height, z - Math.sin(angle) * reach,
+            length, h * .09, length * .27, angle, -.13)
+        }
       }
     }
   }
@@ -205,15 +256,12 @@ export function createWorld(kind: World): {
       }
     }
   }
+  const letters: Array<{ parent: THREE.Object3D; controller: ReturnType<typeof createLetterAnimation> }> = []
   function envelope(parent: THREE.Object3D) {
-    mesh('envelope-paper', box, palette.paper, parent, 0, .045, 0, 1.05, .075, .72)
-    const flap = new THREE.Shape(); flap.moveTo(-.5, -.32); flap.lineTo(.5, -.32); flap.lineTo(0, .13); flap.closePath()
-    const fold = mesh('triangular-envelope-flap', geo(new THREE.ShapeGeometry(flap)), palette.cream, parent, 0, .088, 0)
-    fold.rotation.x = -Math.PI / 2
-    mesh('wax-seal', cylinder, palette.coral, parent, 0, .108, .04, .095, .035, .095)
-    mesh('seal-impression', sphere, palette.gold, parent, 0, .13, .04, .025, .008, .025)
+    letters.push({ parent, controller: createLetterAnimation(parent) })
   }
   const bookHinges: Array<{ hinge: THREE.Group; parent: THREE.Object3D; resting: number }> = []
+  let memoryPageHinge: THREE.Group | undefined
   function book(parent: THREE.Object3D, material = palette.teal, open = false) {
     mesh('book-bottom-cover', box, material, parent, 0, .035, 0, 1.18, .07, .86)
     mesh('book-page-block', box, palette.paper, parent, .015, .125, 0, 1.1, .13, .79)
@@ -223,6 +271,12 @@ export function createWorld(kind: World): {
     hinge.rotation.z = open ? 2.65 : 0
     bookHinges.push({ hinge, parent, resting: hinge.rotation.z })
     mesh('book-spine', box, material, parent, -.56, .13, 0, .1, .2, .86)
+    if (parent.userData.action === 'memories') {
+      memoryPageHinge = part('memory-page-hinge', parent, -.54, .205, 0)
+      memoryPageHinge.userData.keep = true
+      memoryPageHinge.visible = false
+      mesh('memory-turning-page', box, palette.paper, memoryPageHinge, .54, .012, 0, 1.08, .018, .77)
+    }
     mesh('book-gold-inlay', box, palette.gold, hinge, .56, .042, 0, .68, .012, .025)
     mesh('ribbon-bookmark', box, palette.coral, parent, .32, .205, .31, .065, .012, .52)
     if (open) {
@@ -235,6 +289,41 @@ export function createWorld(kind: World): {
     mesh('frame-back', box, palette.darkWood, f, 0, .65, 0, 1.05, 1.28, .09)
     mesh('blank-photo-mat', box, palette.paper, f, 0, .65, .055, .9, 1.12, .025)
     mesh('empty-photo-insert', box, palette.teal, f, 0, .69, .075, .69, .78, .012)
+    // Only same-origin public/photos files are eligible; redirects are rejected before
+    // decoding so a configured path cannot silently contact an external host.
+    const src = personal.gallery.find(photo => /^\/photos\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-][A-Za-z0-9_.-]*\.(?:jpe?g|png|webp)$/i.test(photo.src))?.src
+    if (src) {
+      const photoMaterial = mat('#ffffff', 1)
+      const photoMesh = mesh('gallery-photo-insert', geo(new THREE.PlaneGeometry(.69, .78)), photoMaterial, f, 0, .69, .083)
+      photoMesh.visible = false
+      void (async () => {
+        let url: string | undefined
+        try {
+          const response = await fetch(src, { redirect: 'error', credentials: 'same-origin', signal: photoAbort.signal })
+          if (!response.ok) return
+          const blob = await response.blob()
+          if (disposed || !/^image\/(jpeg|png|webp)$/i.test(blob.type)) return
+          url = URL.createObjectURL(blob)
+          const texture = await new THREE.TextureLoader().loadAsync(url)
+          if (disposed) { texture.dispose(); return }
+          textures.add(texture)
+          texture.colorSpace = THREE.SRGBColorSpace
+          // Center-crop rather than distort photos of different aspect ratios.
+          const image = texture.image as HTMLImageElement
+          const aspect = image.width / image.height, frameAspect = .69 / .78
+          if (Number.isFinite(aspect) && aspect > 0) {
+            if (aspect > frameAspect) { texture.repeat.x = frameAspect / aspect; texture.offset.x = (1 - texture.repeat.x) / 2 }
+            else { texture.repeat.y = aspect / frameAspect; texture.offset.y = (1 - texture.repeat.y) / 2 }
+          }
+          photoMaterial.map = texture; photoMaterial.needsUpdate = true; photoMesh.visible = true
+          invalidate?.()
+        } catch {
+          // Leave the empty insert visible when the file is unavailable or invalid.
+        } finally {
+          if (url) URL.revokeObjectURL(url)
+        }
+      })()
+    }
     for (const x of [-.51, .51]) mesh('frame-carved-upright', box, palette.gold, f, x, .65, .08, .065, 1.31, .09)
     for (const y of [.02, 1.28]) mesh('frame-carved-rail', box, palette.gold, f, 0, y, .08, 1.08, .065, .09)
     const stand = mesh('frame-easel', box, palette.darkWood, f, 0, .38, -.28, .14, .8, .075); stand.rotation.x = -.5
@@ -257,7 +346,7 @@ export function createWorld(kind: World): {
   }
 
   // A genuine horizon-filling ground surface; there is deliberately no floating display plinth.
-  if (kind !== 'journey') terrain('continuous-landscape', 100, 110, -25, groundHeight, palette.ground)
+  if (kind !== 'journey') terrain('continuous-landscape', 100, 110, -25, groundHeight, palette.ground, coast ? 120 : 64)
   clouds()
   if (!coast) distantMountains()
 
@@ -328,7 +417,9 @@ export function createWorld(kind: World): {
       for (let i = 0; i <= 160; i++) {
         const x = -55 + i * 110 / 160
         for (let side = 0; side < 2; side++) {
-          positions.push(x, 0, shoreline(x) - band * .85 - side * (.16 + band * .09))
+          const irregularity = .5 + .5 * Math.sin(x * .37 + band * 1.7) * Math.sin(x * .13 - band)
+          const crest = Math.sin(x * .23 + band * 1.3) * .2 + Math.sin(x * .71 - band) * .08
+          positions.push(x, 0, shoreline(x) - band * .85 + crest - side * (.12 + band * .06 + irregularity * .27))
           uv.push(i / 160, side)
         }
         if (i < 160) { const a = i * 2; indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2) }
@@ -341,11 +432,11 @@ export function createWorld(kind: World): {
         uniforms: { uTime: clock, uBand: { value: band } }, transparent: true, depthWrite: false, side: THREE.DoubleSide,
         vertexShader: `${waveGLSL}
           uniform float uTime; uniform float uBand; varying vec2 vUv; varying float vX;
-          void main(){vec3 p=position;p.z+=sin(uTime*.7+uBand*.9)*.12;p.y=wave(p.xz,uTime)+.023;
+          void main(){vec3 p=position;p.z+=sin(uTime*.7+uBand*.9+p.x*.12)*.12;p.y=wave(p.xz,uTime)+.023;
           vUv=uv;vX=p.x;gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.);}`,
         fragmentShader: `uniform float uTime; uniform float uBand; varying vec2 vUv; varying float vX;
-          void main(){float lace=.55+.45*sin(vX*8.+sin(vX*2.7)+uTime*.5);
-          float edge=sin(vUv.y*3.14159);float breath=.5+.2*sin(uTime*.7+uBand*.9);
+          void main(){float lace=smoothstep(-.35,.65,sin(vX*2.1+sin(vX*.43+uBand)*2.+uTime*.3)+.45*sin(vX*5.7-uTime*.2));
+          float edge=sin(vUv.y*3.14159);float breath=.4+.2*sin(uTime*.7+uBand*.9+vX*.09);
           gl_FragColor=vec4(.91,.96,.85,edge*lace*breath);
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
@@ -408,8 +499,25 @@ export function createWorld(kind: World): {
       const a = j * Math.PI / 12
       tube('raised-shell-rib', [[0, .01, 0], [Math.cos(a) * .35, .22, Math.sin(a) * .36], [Math.cos(a) * .69, .015, Math.sin(a) * .72]], .012, palette.cream, shell, 12)
     }
-    const driftwood = mesh('sun-bleached-driftwood', cylinder, palette.wood, group, 2.5, .32, 2.9, .24, 3, .2)
+    // A single sculpted trunk, with a subtle knot and weathering grooves. Its
+    // top remains beneath the existing letter target, preserving selection.
+    const driftGeometry = geo(new THREE.CylinderGeometry(1, 1, 1, 16, 24))
+    const driftPositions = driftGeometry.attributes.position
+    for (let i = 0; i < driftPositions.count; i++) {
+      const y = driftPositions.getY(i), x = driftPositions.getX(i), z = driftPositions.getZ(i)
+      const angle = Math.atan2(z, x)
+      const taper = .85 - .25 * y + .08 * Math.sin(y * 15 + angle * 3) + .045 * Math.sin(angle * 7 + y * 18)
+      driftPositions.setXYZ(i, x * taper + .12 * Math.sin(y * 5), y, z * taper + .1 * Math.sin(y * 4 + .5))
+    }
+    driftGeometry.computeVertexNormals()
+    const driftwood = mesh('sun-bleached-driftwood', driftGeometry, palette.wood, group, 2.5, .32, 2.9, .27, 3, .23)
     driftwood.rotation.z = Math.PI / 2; driftwood.rotation.y = -.17
+    driftwood.userData.keep = true
+    tube('driftwood-worn-branch', [[1.6, .34, 2.9], [1.25, .39, 2.78], [.95, .3, 2.55]], .065, palette.wood)
+    for (let i = 0; i < 3; i++) {
+      const z = 2.8 + i * .085
+      tube('driftwood-weathered-grain', [[1.35, .49, z], [2.1, .54, z + .04], [2.9, .54, z - .02], [3.55, .47, z]], .009, palette.darkWood, group, 16)
+    }
     const letter = target('letter', 'A letter by the shore', 2.4, .58, 2.9); letter.rotation.y = -.15; envelope(letter)
     const blossom = target('flower', 'A small space for her', -4.3, groundHeight(-4.3, 4), 4)
     flower(blossom, 0, 0, 0, 1.25)
@@ -467,6 +575,29 @@ export function createWorld(kind: World): {
       tube('continuous-roadside-rail', points, .045, palette.wood, group, 400)
     }
     pines(110, 33); grasses(550)
+    // Endpoint silhouettes deliberately echo the shore and reading cabin. They
+    // are landmarks within the road scene, not the destination models themselves.
+    const shore = part('journey-coastal-landmark', group, -10, -.25, 0)
+    shore.userData.keep = true
+    mesh('shore-sandbar', sphere, palette.cream, shore, 0, 0, 0, 7, .32, 8)
+    for (const [x, z] of [[-2, 1], [2, -3]]) {
+      const trunk = mesh('shore-palm-trunk', cylinder, palette.bark, shore, x, 2, z, .17, 4, .17)
+      trunk.rotation.z = .14
+      for (let i = 0; i < 7; i++) {
+        const a = i * Math.PI * 2 / 7
+        const frond = mesh('shore-palm-frond', sphere, palette.leaf, shore, x + Math.cos(a), 4, z + Math.sin(a), 1.45, .12, .25)
+        frond.rotation.y = -a; frond.rotation.z = .15
+      }
+    }
+    const cabinZ = -50, cabinX = roadX(cabinZ) + 7
+    const cabin = part('journey-cabin-landmark', group, cabinX, journeyHeight(cabinX, cabinZ), cabinZ)
+    cabin.userData.keep = true
+    mesh('cabin-timber-walls', box, palette.wood, cabin, 0, 1.5, 0, 5.8, 3, 3.5)
+    const roof = mesh('cabin-standing-roof', box, palette.dark, cabin, 0, 3.15, 0, 6.5, .25, 4.2)
+    roof.rotation.x = -.15
+    mesh('cabin-lit-window', box, palette.cream, cabin, -1, 1.8, 1.77, 1.4, 1.1, .05)
+    mesh('cabin-window-crossbar', box, palette.darkWood, cabin, -1, 1.8, 1.81, .07, 1.15, .06)
+    mesh('cabin-door', box, palette.darkWood, cabin, 1, 1.1, 1.77, 1.1, 2.2, .06)
     const rest = bench(-4.7, 3.5); rest.rotation.y = .2
     const reminder = target('book', 'A pause on the way to Baguio', -4.7, .86, 3.55); book(reminder, palette.coral)
     const sign = part('mountain-trail-waymarker', group, 3.9, .1, 1.8)
@@ -713,9 +844,16 @@ export function createWorld(kind: World): {
       animated.forEach(animate => animate(t))
     },
     openGift,
+    turnMemoryPage(direction, progress) {
+      if (!memoryPageHinge || disposed) return
+      const p = THREE.MathUtils.clamp(Number.isFinite(progress) ? progress : 1, 0, 1)
+      memoryPageHinge.visible = p < 1
+      memoryPageHinge.rotation.z = direction === 1 ? p * Math.PI : (1 - p) * Math.PI
+    },
     inspect(id: WorldAction | undefined, progress: number) {
       const selected=targets.find(target=>target.id===id)?.object
       const amount=THREE.MathUtils.smoothstep(Number.isFinite(progress)?progress:0,0,1)
+      for (const letter of letters) letter.controller.setProgress(selected === letter.parent ? amount : 0)
       for(const item of bookHinges){
         let ancestor:THREE.Object3D|null=item.parent
         while(ancestor&&ancestor!==selected)ancestor=ancestor.parent
@@ -725,8 +863,11 @@ export function createWorld(kind: World): {
     dispose() {
       if (disposed) return
       disposed = true
+      photoAbort.abort()
+      textures.forEach(texture => texture.dispose()); textures.clear()
       // InstancedMesh owns GPU instance buffers in addition to its shared geometry/material.
       group.traverse(object => { if (object instanceof THREE.InstancedMesh) object.dispose() })
+      letters.forEach(letter => letter.controller.dispose()); letters.length = 0
       geometries.forEach(geometry => geometry.dispose())
       materials.forEach(material => material.dispose())
       geometries.clear(); materials.clear(); instances.clear(); animated.length = 0

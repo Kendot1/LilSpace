@@ -38,7 +38,7 @@ export const personal: PersonalContent = {
   message: '', // ADD YOUR PERSONAL LETTER. Missing content stays an honest empty state.
   signature: '', // e.g. your name
   surpriseMessage: '', // Optional separate gift message
-  senderLocation: 'Quezon City',
+  senderLocation: '',
   // Written from the love you expressed; replace freely with your own voice.
   connectionLetter: 'I made this little world because I love you, and I want you to feel it. Not just in a big moment, but in the quiet ones too. You are special to me—not because of what you achieve, or how much you can carry, but because you are you. If I could place one thing in your hands from here, it would be the certainty that you are loved. Until I can tell you beside you, let this little space say it for me: I love you. This is for you.',
   currentLocation: 'La Union',
@@ -55,15 +55,15 @@ export const personal: PersonalContent = {
   journey: 'From La Union’s coast to the mountains of Baguio. A nursing student, with a whole world beyond the classroom.',
   // An imagined invitation, not a claim about her experiences. Edit every passage here.
   story: [
-    { title: 'Two places. One us.', text: 'Baguio and Quezon City. Different skylines, different air. So I made a little world where the space between us is not the end of the story.' },
+    { title: 'Two places. One us.', text: 'La Union is where you are now; Baguio is where you study. Different landscapes, and a little world made to hold a thought of you.' },
     { title: 'This is me, reaching for you.', text: 'From my side of this little world, I send something simple: my love. Not a grand performance. Just something I want you to feel.' },
     { title: 'And there you are.', text: 'Among the pines is a small figure for you. Not your whole story, not a portrait—just a way to show who this is all for.' },
     { title: 'You are not just far away.', text: 'You are someone I love. Someone worth the time, the thought, and every small detail I put into this place.' },
-    { title: 'A little light between us.', text: 'Watch it find its way from my side to yours. I cannot make two cities become one, but I can make something that reminds you we are connected.' },
+    { title: 'A little light between us.', text: 'Two places do not have to become one for a small reminder to travel between them: you are loved.' },
     { title: 'I want you to feel loved.', text: 'Not only when everything is going well. Not only when there is something to celebrate. You do not have to earn a place in my heart.' },
     { title: 'Closer, one little step.', text: 'Here, the distance softens. Two paths begin to meet. An imagined moment, made from something real: the love I have for you.' },
     { title: 'A place beside me.', text: 'This garden is not a memory I am pretending we have. It is a little picture of what I want this gift to feel like: warmth, closeness, and room for the two of us.' },
-    { title: 'This was always for you.', text: 'The cities, the light, the flowers, every little turn of the story. I made them to say something I never want you to doubt: I love you.' },
+    { title: 'This was always for you.', text: 'The coast, the mountain air, the light, every little turn of the story. I made them to say something I never want you to doubt: I love you.' },
   ],
   reminders: [
     { title: 'You don’t have to do it all today.', text: 'One small step is still a step. There is room to begin again tomorrow.', category: 'For busy days' },

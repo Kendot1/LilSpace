@@ -34,9 +34,10 @@ export function mountWorld(host: HTMLDivElement, onSelect: (id: WorldAction) => 
   scene.add(sun)
   const camera = new T.PerspectiveCamera(43, 1, .1, 100)
   const home = new T.Vector3(8, 6.5, 12)
-  const look = new T.Vector3(0, .8, 0)
+  const homeLook = new T.Vector3(0, 2, -7)
+  const look = homeLook.clone()
   camera.position.copy(home)
-  let model = createWorld('coast')
+  let model = createWorld('coast', invalidate)
   scene.add(model.group)
   // Generous invisible pick volumes make small keepsakes selectable on touch screens.
   const pickMaterial = new T.MeshBasicMaterial({ visible: false })
@@ -55,6 +56,28 @@ export function mountWorld(host: HTMLDivElement, onSelect: (id: WorldAction) => 
   }
   prepareTargets()
   let world: World = 'coast', timeline: gsap.core.Timeline | undefined
+  let pageTimeline: gsap.core.Tween | undefined
+  const cancelPage = () => { pageTimeline?.kill(); pageTimeline = undefined; model.turnMemoryPage(1, 1) }
+  const setHome = () => {
+    const mobile = host.clientWidth < 600
+    home.set(mobile ? 10 : 8, mobile ? 9 : 6.5, mobile ? 17 : 12)
+    homeLook.set(0, world === 'mountain' ? 4 : world === 'coast' ? 2 : .8, world === 'mountain' ? -18 : world === 'coast' ? -7 : 0)
+  }
+  let transition: gsap.core.Timeline | undefined
+  let pendingSwap: (() => void) | undefined
+  let pendingWorld: World | undefined, pendingJourney: number | undefined
+  const cancelTransition = () => {
+    transition?.kill(); transition = undefined; pendingSwap = undefined; pendingWorld = undefined; pendingJourney = undefined
+    renderer.domElement.style.opacity = '1'
+  }
+  const finishTransition = () => {
+    const swap = pendingSwap
+    transition?.kill(); transition = undefined
+    renderer.domElement.style.opacity = '1'
+    swap?.()
+    pendingSwap = undefined; pendingWorld = undefined; pendingJourney = undefined
+    busy = false
+  }
   let active = true, disposed = false, busy = false, elapsed = 0, previous = performance.now()
   const reduced = matchMedia('(prefers-reduced-motion: reduce)')
   let storyOwned = false, storyProgress = 0
@@ -66,7 +89,7 @@ export function mountWorld(host: HTMLDivElement, onSelect: (id: WorldAction) => 
   const restoreAtmosphere = () => {
     const fog = scene.fog as T.FogExp2
     const atmosphere=sampleWorldAtmosphere(world,arrival.value,scene.background as T.Color,sun.color)
-    fog.color.copy(scene.background as T.Color); fog.density=atmosphere.fog
+    fog.color.copy(scene.background as T.Color); fog.density=world === 'mountain' ? .007 : atmosphere.fog
     sun.intensity=atmosphere.intensity
     scene.environmentIntensity=.32
   }
@@ -77,14 +100,14 @@ export function mountWorld(host: HTMLDivElement, onSelect: (id: WorldAction) => 
     connection?.dispose(); connection = undefined; model.group.visible = true
     const destination=storyWorlds[Math.min(3,Math.floor(storyProgress*4))]
     if(world!==destination){
-      scene.remove(model.group);model.dispose();model=createWorld(destination);scene.add(model.group);prepareTargets();world=destination
+      scene.remove(model.group);model.dispose();model=createWorld(destination, invalidate);scene.add(model.group);prepareTargets();world=destination
     }
     host.dataset.world = world
     delete host.dataset.connectionProgress
     restoreAtmosphere()
     model.openGift(0); model.inspect(undefined,0); host.dataset.gift = 'closed'; host.dataset.giftProgress = '0'
     delete host.dataset.camera
-    camera.position.copy(home); look.set(0, .8, 0)
+    setHome(); camera.position.copy(home); look.copy(homeLook)
     render(performance.now())
   }
   const render = (now: number) => {
@@ -104,6 +127,9 @@ export function mountWorld(host: HTMLDivElement, onSelect: (id: WorldAction) => 
     host.dataset.camera = cameraStamp
     host.dataset.drawCalls = String(renderer.info.render.calls)
   }
+  function invalidate() {
+    if (active && !document.hidden && !disposed) render(performance.now())
+  }
   const sync = () => {
     const running = active && !document.hidden && !disposed
     renderer.setAnimationLoop(running && !reduced.matches ? render : null)
@@ -114,16 +140,20 @@ export function mountWorld(host: HTMLDivElement, onSelect: (id: WorldAction) => 
     const width = host.clientWidth, height = Math.max(host.clientHeight, 1)
     renderer.setSize(width, height)
     camera.aspect = width / height; camera.updateProjectionMatrix()
-    home.set(width < 600 ? 10 : 8, width < 600 ? 9 : 6.5, width < 600 ? 17 : 12)
+    // A projection change moves screen-space targets even if the pose is unchanged.
+    delete host.dataset.camera
+    setHome()
     if (storyOwned) applyStoryPose()
-    else if (!busy) camera.position.copy(home)
+    else if (!busy) { camera.position.copy(home); look.copy(homeLook) }
     render(performance.now())
   })
   resize.observe(host)
   const observer = new IntersectionObserver(entries => { active = entries[0].isIntersecting; sync() }, { rootMargin: '80px' })
   observer.observe(host)
   const focus = (id: WorldAction) => {
+    cancelPage()
     endStory()
+    if (pendingSwap) finishTransition(); else cancelTransition()
     timeline?.kill(); arrival.value=1; restoreAtmosphere(); busy = false
     const target = model.targets.find(item => item.id === id)
     if (!target) return
@@ -133,8 +163,8 @@ export function mountWorld(host: HTMLDivElement, onSelect: (id: WorldAction) => 
     else { gsap.to(look, { x: aim.x, y: aim.y, z: aim.z, duration: .9 }); gsap.to(camera.position, { x: aim.x + 4, y: aim.y + 3, z: aim.z + 6, duration: .9, ease: 'power2.inOut' }) }
     model.openGift(0)
     model.inspect(undefined,0)
-    if (reduced.matches) model.inspect(id,1)
-    else if (id === 'book' || id === 'memories') {
+    if (reduced.matches) { model.inspect(id,1); render(performance.now()) }
+    else if (id === 'book' || id === 'memories' || id === 'letter') {
       const inspection={value:0}
       timeline=gsap.timeline().to(inspection,{value:1,duration:1.1,ease:'power2.inOut',onUpdate:()=>model.inspect(id,inspection.value)})
     }
@@ -155,35 +185,110 @@ export function mountWorld(host: HTMLDivElement, onSelect: (id: WorldAction) => 
     if (!intersection) return undefined
     return model.targets.find(t => { let object: T.Object3D | null = intersection.object; while (object) { if (object === t.object) return true; object = object.parent } return false })
   }
-  const move = (e: PointerEvent) => { host.style.cursor = storyOwned ? 'default' : hit(e) ? 'pointer' : 'grab' }
-  const click = (e: PointerEvent) => { if (storyOwned) return; const target = hit(e); if (target) focus(target.id) }
+  const canvas = renderer.domElement
+  // Capture one primary pointer so a drag remains continuous outside the canvas.
+  canvas.style.touchAction = 'none'
+  let gesture: { id: number; startX: number; startY: number; x: number; y: number; dragged: boolean } | undefined
+  let suppressClick = false
+  const orbit = new T.Spherical(), offset = new T.Vector3()
+  const down = (e: PointerEvent) => {
+    if (storyOwned || busy || !e.isPrimary || e.button !== 0 || gesture) return
+    suppressClick = false
+    gesture = { id: e.pointerId, startX: e.clientX, startY: e.clientY, x: e.clientX, y: e.clientY, dragged: false }
+    canvas.setPointerCapture(e.pointerId)
+  }
+  const move = (e: PointerEvent) => {
+    if (gesture && gesture.id === e.pointerId) {
+      if (storyOwned || busy) { suppressClick = true; gesture = undefined; return }
+      if (!gesture.dragged && Math.hypot(e.clientX - gesture.startX, e.clientY - gesture.startY) >= 6) {
+        gesture.dragged = true
+        gsap.killTweensOf([camera.position, look])
+      }
+      if (gesture.dragged) {
+        orbit.setFromVector3(offset.copy(camera.position).sub(look))
+        orbit.theta -= (e.clientX - gesture.x) * .004
+        orbit.phi = T.MathUtils.clamp(orbit.phi - (e.clientY - gesture.y) * .004, .55, 1.3)
+        camera.position.copy(offset.setFromSpherical(orbit).add(look))
+        render(performance.now())
+      }
+      gesture.x = e.clientX; gesture.y = e.clientY
+      host.style.cursor = gesture.dragged ? 'grabbing' : 'grab'
+    } else if (e.pointerType !== 'touch') host.style.cursor = storyOwned ? 'default' : hit(e) ? 'pointer' : 'grab'
+  }
+  const up = (e: PointerEvent) => {
+    if (!gesture || gesture.id !== e.pointerId) return
+    suppressClick = gesture.dragged || e.type === 'pointercancel'
+    gesture = undefined
+    if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId)
+    host.style.cursor = storyOwned ? 'default' : 'grab'
+  }
+  const click = (e: PointerEvent) => {
+    if (suppressClick) { suppressClick = false; return }
+    if (storyOwned || busy) return
+    const target = hit(e); if (target) focus(target.id)
+  }
   const lost = (e: Event) => { e.preventDefault(); renderer.setAnimationLoop(null); onFailure() }
   const reset = () => {
+    cancelPage()
     endStory()
+    if (pendingSwap) finishTransition(); else cancelTransition()
     timeline?.kill(); gsap.killTweensOf([camera.position, look]); arrival.value=1; restoreAtmosphere(); busy = false
     model.openGift(0); model.inspect(undefined,0); host.dataset.gift = 'closed'
     gsap.to(camera.position, { x: home.x, y: home.y, z: home.z, duration: reduced.matches ? 0 : 1, onUpdate: () => { if (reduced.matches) render(performance.now()) } })
-    gsap.to(look, { x: 0, y: .8, z: 0, duration: reduced.matches ? 0 : 1 })
+    gsap.to(look, { x: homeLook.x, y: homeLook.y, z: homeLook.z, duration: reduced.matches ? 0 : 1, onUpdate: () => { if (reduced.matches) render(performance.now()) } })
     sync()
   }
   const changeWorld = (next: World, scrub = false) => {
+    cancelPage()
+    transition?.kill(); transition = undefined; pendingSwap = undefined; pendingWorld = undefined; pendingJourney = undefined
     timeline?.kill(); gsap.killTweensOf([camera.position, look]); busy = true
     const swap = () => {
-      scene.remove(model.group); model.dispose(); model = createWorld(next); scene.add(model.group); prepareTargets()
+      scene.remove(model.group); model.dispose(); model = createWorld(next, invalidate); scene.add(model.group); prepareTargets()
       world = next; host.dataset.world = world; host.dataset.gift = 'closed'
+      delete host.dataset.camera
       scene.background = new T.Color(skies[next]); (scene.fog as T.FogExp2).color.set(skies[next])
-      look.set(0, .8, 0); camera.position.copy(home).multiplyScalar(1.18)
+      setHome(); look.copy(homeLook); camera.position.copy(home).multiplyScalar(1.18)
     }
-    if (scrub) { swap(); arrival.value=1; restoreAtmosphere(); busy = false }
-    else if (reduced.matches) { swap(); arrival.value=1; restoreAtmosphere(); camera.position.copy(home); busy = false; render(performance.now()) }
+    if (scrub || reduced.matches) { renderer.domElement.style.opacity='1'; swap(); arrival.value=1; restoreAtmosphere(); camera.position.copy(home); busy = false; render(performance.now()) }
     else {
-      swap(); arrival.value=0; restoreAtmosphere()
-      timeline = gsap.timeline({onComplete:()=>{busy=false}})
-        .to(arrival,{value:1,duration:1.4,ease:'power2.out',onUpdate:restoreAtmosphere},0)
-        .to(camera.position,{x:home.x,y:home.y,z:home.z,duration:1.4,ease:'power2.out'},0)
+      pendingWorld = next
+      pendingSwap = () => {
+        swap(); arrival.value=1; restoreAtmosphere(); camera.position.copy(home)
+        const progress = pendingJourney; pendingJourney = undefined; pendingSwap = undefined; pendingWorld = undefined
+        if (progress !== undefined) travel(progress)
+        render(performance.now())
+      }
+      transition = gsap.timeline({onComplete:()=>{busy=false; transition=undefined}})
+        .to(renderer.domElement,{opacity:0,duration:.45,ease:'power2.inOut'})
+        .call(() => pendingSwap?.())
+        .to(renderer.domElement,{opacity:1,duration:.65,ease:'power2.inOut'})
     }
   }
-  const change = (next: World) => { endStory(); changeWorld(next) }
+  const change = (next: World) => {
+    endStory()
+    const origin = world
+    const progress = origin === 'journey' ? Number(host.dataset.journeyProgress || 0) : origin === 'mountain' ? 1 : 0
+    const corridor = (origin === 'coast' || origin === 'journey' || origin === 'mountain') && (next === 'coast' || next === 'journey' || next === 'mountain')
+    if (!corridor || reduced.matches || next === 'journey') { changeWorld(next, next === 'journey'); if (next === 'journey') travel(0); return }
+    // The road is continuous, but its destination model uses a different
+    // composition. Fade that final exchange rather than cutting abruptly.
+    changeWorld('journey', true)
+    const state = { value: progress }
+    const target = next === 'mountain' ? 1 : 0
+    const apply = () => {
+      const atmosphere = sampleJourney(state.value, camera.position, look, scene.background as T.Color, sun.color, host.clientWidth < 600)
+      const fog = scene.fog as T.FogExp2
+      fog.color.copy(scene.background as T.Color); fog.density = atmosphere.fog; sun.intensity = atmosphere.intensity
+      host.dataset.journeyProgress = String(state.value)
+      render(performance.now())
+    }
+    apply()
+    pendingWorld = next
+    pendingSwap = () => changeWorld(next, false)
+    busy = true
+    transition = gsap.timeline({ onComplete: () => { const finish = pendingSwap; pendingSwap = undefined; pendingWorld = undefined; transition = undefined; finish?.() } })
+      .to(state, { value: target, duration: Math.max(.5, Math.abs(target - progress) * 3.5), ease: 'power1.inOut', onUpdate: apply })
+  }
   const applyStoryPose = () => {
     const chapter = Math.min(3, Math.floor(storyProgress * 4))
     const p = storyProgress
@@ -206,6 +311,8 @@ export function mountWorld(host: HTMLDivElement, onSelect: (id: WorldAction) => 
   const story = (progress: number): void => {
     if (disposed) return
     if (!storyOwned) {
+      cancelPage()
+      cancelTransition()
       timeline?.kill(); timeline = undefined
       gsap.killTweensOf([camera.position, look]); busy = false
       storyOwned = true; host.dataset.storyActive = 'true'; host.style.cursor = 'default'
@@ -216,31 +323,50 @@ export function mountWorld(host: HTMLDivElement, onSelect: (id: WorldAction) => 
   }
   const preference = () => {
     if (storyOwned) applyStoryPose()
-    else if (reduced.matches) { timeline?.progress(1); gsap.killTweensOf([camera.position, look]); }
+    else if (reduced.matches) { if (pendingSwap) finishTransition(); else cancelTransition(); timeline?.progress(1); pageTimeline?.progress(1); gsap.killTweensOf([camera.position, look]); }
     sync()
   }
   document.addEventListener('visibilitychange', sync)
   reduced.addEventListener('change', preference)
-  host.addEventListener('pointermove', move); host.addEventListener('click', click)
+  canvas.addEventListener('pointerdown', down); canvas.addEventListener('pointermove', move)
+  canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up); canvas.addEventListener('lostpointercapture', up)
+  canvas.addEventListener('click', click)
   renderer.domElement.addEventListener('webglcontextlost', lost)
   host.dataset.world = world; sync()
   const travel=(progress:number)=>{
     endStory()
+    if (pendingWorld === 'journey') { pendingJourney = progress; return }
     if(world!=='journey')changeWorld('journey',true)
     timeline?.kill();gsap.killTweensOf([camera.position,look]);busy=false
-    const atmosphere=sampleJourney(progress,camera.position,look,scene.background as T.Color,sun.color)
+    const atmosphere=sampleJourney(progress,camera.position,look,scene.background as T.Color,sun.color,host.clientWidth < 600)
     const fog=scene.fog as T.FogExp2;fog.color.copy(scene.background as T.Color);fog.density=atmosphere.fog;sun.intensity=atmosphere.intensity
     host.dataset.journeyProgress=String(T.MathUtils.clamp(progress,0,1))
     render(performance.now())
   }
-  return { change, focus, reset, story, endStory, travel, rotate: (direction: number) => {
+  const turnMemoryPage = (direction: 1 | -1) => {
+    cancelPage()
+    host.dataset.pageDirection = String(direction)
+    const state = { progress: 0 }
+    const update = () => { model.turnMemoryPage(direction, state.progress); host.dataset.pageProgress = String(state.progress); render(performance.now()) }
+    if (reduced.matches) { state.progress = 1; update(); return }
+    update()
+    pageTimeline = gsap.to(state, { progress: 1, duration: .8, ease: 'power2.inOut', onUpdate: update, onComplete: () => { pageTimeline = undefined } })
+  }
+  return { change, focus, reset, story, endStory, travel, turnMemoryPage, rotate: (direction: number) => {
     endStory()
     const angle = direction * .25, x = camera.position.x, z = camera.position.z
     gsap.to(camera.position, { x: x * Math.cos(angle) + z * Math.sin(angle), z: z * Math.cos(angle) - x * Math.sin(angle), duration: reduced.matches ? 0 : .5, onUpdate: () => { if (reduced.matches) render(performance.now()) } })
   }, dispose: () => {
+    cancelPage()
+    cancelTransition()
     disposed = true; renderer.setAnimationLoop(null); timeline?.kill(); gsap.killTweensOf([camera.position, look])
     resize.disconnect(); observer.disconnect(); reduced.removeEventListener('change', preference)
-    document.removeEventListener('visibilitychange', sync); host.removeEventListener('pointermove', move); host.removeEventListener('click', click)
+    document.removeEventListener('visibilitychange', sync)
+    if (gesture && canvas.hasPointerCapture(gesture.id)) canvas.releasePointerCapture(gesture.id)
+    gesture = undefined
+    canvas.removeEventListener('pointerdown', down); canvas.removeEventListener('pointermove', move)
+    canvas.removeEventListener('pointerup', up); canvas.removeEventListener('pointercancel', up); canvas.removeEventListener('lostpointercapture', up)
+    canvas.removeEventListener('click', click); host.style.cursor = ''
     renderer.domElement.removeEventListener('webglcontextlost', lost)
     connection?.dispose(); model.dispose(); scene.environment=null; reflection.dispose(); pickGeometry.dispose(); pickMaterial.dispose(); renderer.dispose(); renderer.domElement.remove()
   } }

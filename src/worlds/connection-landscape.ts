@@ -15,10 +15,13 @@ export function createConnectionLandscape(){
  }
  const terrain=new T.PlaneGeometry(180,180,180,180);terrain.rotateX(-Math.PI/2);terrain.translate(0,0,-55)
  const positions=terrain.attributes.position,colors=new Float32Array(positions.count*3),color=new T.Color()
+ const sand=new T.Color('#c6aa7f'), inland=new T.Color('#31574e'), mountain=new T.Color('#50675e')
  for(let i=0;i<positions.count;i++){
   const x=positions.getX(i),z=positions.getZ(i),y=height(x,z);positions.setY(i,y)
+  // Warm exposed sand blends into cooler inland ground over the same terrain.
   const shore=T.MathUtils.smoothstep(z-Math.sin(x*.12)*2.1-Math.sin(x*.29+.7)*.8,3,13)
-  color.set('#31574e').lerp(new T.Color('#9b9172'),shore*.8)
+  const elevation=T.MathUtils.smoothstep(-z,5,35)
+  color.copy(inland).lerp(mountain,elevation*.65).lerp(sand,shore*.9)
   color.multiplyScalar(.88+.12*Math.sin(x*.7+Math.sin(z*.55)))
   colors.set(color.toArray(),i*3)
  }

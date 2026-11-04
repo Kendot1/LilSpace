@@ -82,11 +82,11 @@ export function saveMemories(memories: Memory[], options: {restore?: boolean} = 
  try {localStorage.setItem(STORAGE_KEY,serialized)} catch {throw new Error('This browser could not save your memory. Storage may be full or blocked. Your writing is still here; try a smaller photo or export a backup.')}
 }
 /** Unreadable raw data is exported verbatim for recovery; otherwise export current UI state. */
-export async function exportBackup(memories:Memory[]): Promise<void> {
+export async function exportBackup(memories:Memory[], recoverLegacy = true): Promise<void> {
  let recovery: string | undefined
  try {
   const raw = localStorage.getItem(STORAGE_KEY)
-  if (raw !== null) {
+  if (recoverLegacy && raw !== null) {
    try { parseBackup(raw) } catch { recovery = raw }
   }
  } catch { /* Storage may be blocked; in-memory writing is still exportable. */ }

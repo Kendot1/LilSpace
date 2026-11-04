@@ -123,6 +123,41 @@ export function createConnection(): {
     for (let j = 0; j < 4; j++) put('rounded-city-tree-canopy', sphere, j % 2 ? p.pineTip : p.pine,
       x + Math.sin(j * 2) * .38, 2 + (j % 2) * .35, -.5 + Math.cos(j * 2) * .3, .72, .7, .68, qc)
   }
+  // Story chapters share a camera and landscape, but each has its own spatial vocabulary.
+  // These are symbolic environments, not specific places or personal memories.
+  const coast = part('la-union-coastal-grove')
+  coast.userData.description = 'A warm shoreline representing her present place, La Union.'
+  const frondGeometry = geometry(new THREE.LatheGeometry([
+    new THREE.Vector2(0, 0), new THREE.Vector2(.18, .35), new THREE.Vector2(.25, .8),
+    new THREE.Vector2(.12, 1.35), new THREE.Vector2(0, 1.8),
+  ], 6))
+  for (const [x, z, h] of [[-9, -1, 5.2], [-5, -4, 4.5], [3, -7, 5.6], [8, -3, 4.7]]) {
+    const base = landscape.height(x, z)
+    const crownX = x + .55
+    tube('curved-coconut-palm-trunk', [vector(x, base, z), vector(x + .15, base + h * .5, z), vector(crownX, base + h, z)], .12, p.bark, coast, 12)
+    for (let j = 0; j < 8; j++) {
+      const a = j * Math.PI / 4
+      put('arching-palm-frond', frondGeometry, j % 2 ? p.pine : p.pineTip,
+        crownX, base + h, z, 1, 1, 1, coast, Math.cos(a) * 1.1, a, Math.sin(a) * 1.1)
+    }
+  }
+  // A single ribbon road recedes into the mountain backdrop, its centerline sharing
+  // the same continuous ground rather than introducing another display platform.
+  const journey = part('coast-to-mountain-road')
+  const roadVertices: number[] = [], roadIndices: number[] = []
+  for (let i = 0; i <= 64; i++) {
+    const z = 8 - i * .48, x = -2 + Math.sin(i * .045) * 4
+    for (const side of [-1, 1]) roadVertices.push(x + side * 1.15, landscape.height(x + side * 1.15, z) + .08, z)
+    if (i < 64) { const a = i * 2; roadIndices.push(a, a + 2, a + 1, a + 1, a + 2, a + 3) }
+  }
+  const roadGeometry = geometry(new THREE.BufferGeometry())
+  roadGeometry.setAttribute('position', new THREE.Float32BufferAttribute(roadVertices, 3))
+  roadGeometry.setIndex(roadIndices); roadGeometry.computeVertexNormals()
+  mesh('winding-mountain-road', roadGeometry, p.paving, journey)
+  for (let i = 0; i < 16; i++) {
+    const z = 6 - i * 1.6, x = -2 + Math.sin((8 - z) / .48 * .045) * 4
+    put('road-center-marker', box, p.cream, x, landscape.height(x, z) + .11, z, .07, .025, .45, journey)
+  }
   // Distant ridges span the horizon; they are not cutouts directly behind the cottage.
   for (let layer = 0; layer < 3; layer++) {
     const ridge = new THREE.Shape()
@@ -351,10 +386,33 @@ export function createConnection(): {
     parent.add(object); instanced.push(object)
   }
   batches.clear()
+  // The city shares palette materials with the rest of the world. Give its
+  // batches their own materials so revealing it never fades the landscape.
+  const cityMaterials = new Map<THREE.Material, THREE.Material>()
+  qc.traverse(object => {
+    if (!(object instanceof THREE.Mesh)) return
+    const isolate = (original: THREE.Material) => {
+      let copy = cityMaterials.get(original)
+      if (!copy) { copy = original.clone(); cityMaterials.set(original, copy); materials.add(copy) }
+      return copy
+    }
+    object.material = Array.isArray(object.material) ? object.material.map(isolate) : isolate(object.material)
+  })
   function setProgress(value: number, reduced: boolean) {
     if (disposed) return
     const progress = Number.isFinite(value) ? THREE.MathUtils.clamp(value, 0, 1) : 0
     const connection = THREE.MathUtils.smoothstep(progress, .2, .65)
+    // Keep the symbolic city out of the coastal and mountain views.
+    // Its reveal belongs to the imagined shared garden, not her present location.
+    const cityReveal = THREE.MathUtils.smoothstep(progress, .75, .9)
+    qc.visible = cityReveal > 0
+    for (const [original, copy] of cityMaterials) {
+      copy.opacity = original.opacity * cityReveal
+      const fading = cityReveal < 1
+      const transparent = original.transparent || fading
+      if (copy.transparent !== transparent) { copy.transparent = transparent; copy.needsUpdate = true }
+      copy.depthWrite = fading ? false : original.depthWrite
+    }
     thread.visible = connection > 0
     for (const item of revealGeometries) item.geometry.setDrawRange(0, Math.floor(item.count * connection / item.stride) * item.stride)
     const approach = THREE.MathUtils.smoothstep(progress, .65, 1)

@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test'
 test('gallery is editable and its empty state does not invent photos', async ({ page }) => {
   await page.goto('/#gallery')
   await expect(page.getByRole('heading', { name: 'A little gallery' })).toBeVisible()
-  await expect(page.getByText('Add photos in the personal content file')).toBeVisible()
+  await expect(page.getByText('A place for your photographs.')).toBeVisible()
 })
 
 test('all requested sections remain navigable with WebGL unavailable', async ({ page }) => {

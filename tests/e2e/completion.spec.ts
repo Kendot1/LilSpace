@@ -3,13 +3,18 @@ import AxeBuilder from '@axe-core/playwright'
 
  test('surprise visibly journeys from coast to mountains, supports skipping and replays', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') })
+  await page.clock.pauseAt(new Date('2026-01-01T00:00:01Z'))
   await page.goto('/#surprise')
   const journey = page.locator('.surprise-journey')
   await page.getByRole('button', { name: 'Open your letter' }).click()
   await expect(journey).toHaveAttribute('data-chapter', 'coast')
   await expect(journey.getByRole('status')).toContainText('sea breeze')
+  await page.clock.runFor(1100)
   await expect(journey).toHaveAttribute('data-chapter', 'mountains')
+  await page.clock.runFor(500)
   await expect.poll(() => page.locator('.journey-mountains').evaluate(el => Number(getComputedStyle(el).opacity))).toBeGreaterThan(0)
+  await page.clock.runFor(600)
   await expect(page.locator('.letter-paper')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Replay surprise' })).toBeFocused()
   await page.getByRole('button', { name: 'Replay surprise' }).click()

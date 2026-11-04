@@ -1,0 +1,28 @@
+import {test,expect} from '@playwright/test'
+import AxeBuilder from '@axe-core/playwright'
+
+for(const reduced of [false,true])test(`journey slider traverses actual camera and reverses, reduced=${reduced}`,async({page})=>{
+ await page.setViewportSize({width:390,height:844})
+ await page.emulateMedia({reducedMotion:reduced?'reduce':'no-preference'})
+ await page.goto('/#worlds')
+ await expect(page.locator('.world-canvas canvas')).toBeVisible()
+ await page.getByRole('button',{name:'Explore at your own pace',exact:true}).click()
+ await page.getByRole('group',{name:'Choose a world',exact:true}).getByRole('button',{name:'The journey',exact:true}).click()
+ const canvas=page.locator('.world-canvas'),slider=page.getByRole('slider',{name:'Travel toward the mountains'})
+ await expect(canvas).toHaveAttribute('data-journey-progress','0')
+ const start=await canvas.getAttribute('data-camera')
+ await slider.focus();await page.keyboard.press('End')
+ await expect(slider).toHaveValue('100')
+ await expect(canvas).toHaveAttribute('data-journey-progress','1')
+ expect(await canvas.getAttribute('data-camera')).not.toBe(start)
+ await page.keyboard.press('Home')
+ await expect(canvas).toHaveAttribute('data-camera',start!)
+ await slider.fill('60')
+ await page.locator('.world-stage').screenshot({path:`test-results/journey-travel-${reduced?'reduced':'mobile'}.png`})
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+ const audit=await new AxeBuilder({page}).include('.world-explorer').withTags(['wcag2a','wcag2aa']).analyze()
+ expect(audit.violations).toEqual([])
+ await page.getByRole('button',{name:'Arrive at the Baguio reading nook'}).click()
+ await expect(canvas).toHaveAttribute('data-world','mountain')
+ await expect(slider).toHaveCount(0)
+})

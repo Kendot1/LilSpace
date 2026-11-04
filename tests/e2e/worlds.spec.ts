@@ -1,0 +1,73 @@
+import { test, expect } from '@playwright/test'
+import AxeBuilder from '@axe-core/playwright'
+
+test('four real worlds, camera inspection, reminders, gift choreography and replay', async ({ page }) => {
+ await page.emulateMedia({ reducedMotion: 'no-preference' })
+ const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));page.on('console',message=>{if(message.type()==='error')errors.push(message.text())})
+ await page.goto('/#worlds')
+ await expect(page.getByRole('button',{name:'Explore at your own pace',exact:true})).toHaveAttribute('aria-pressed','true')
+ const canvas=page.locator('.world-canvas')
+ await expect(canvas.locator('canvas')).toBeVisible()
+ await expect(canvas).toHaveAttribute('data-world','coast')
+ await page.locator('.world-stage').screenshot({path:'test-results/world-coast.png'})
+ // Raycast through the actual canvas, not only its equivalent HTML controls.
+ const bounds=await canvas.boundingBox()
+ const targets=JSON.parse((await canvas.getAttribute('data-targets'))!) as {id:string;x:number;y:number}[]
+ const shell=targets.find(x=>x.id==='shell')!
+ expect(bounds).not.toBeNull()
+ await page.mouse.click(bounds!.x+bounds!.width*shell.x,bounds!.y+bounds!.height*shell.y)
+ await expect(page.locator('.world-discovery')).toBeVisible()
+ await page.getByRole('button',{name:'Inspect the seashell',exact:true}).click()
+ await expect(page.locator('.world-discovery')).toContainText('One small step')
+ const before=await canvas.getAttribute('data-camera')
+ await page.getByRole('button',{name:'Look left',exact:true}).click()
+ await expect.poll(()=>canvas.getAttribute('data-camera')).not.toBe(before)
+ for(const [label,id] of [['The journey','journey'],['Baguio','mountain'],['Their little space','little-space']]){
+  await page.getByRole('group',{name:'Choose a world',exact:true}).getByRole('button',{name:label,exact:true}).click()
+  await expect(canvas).toHaveAttribute('data-world',id)
+  await expect.poll(async()=>Number(await canvas.getAttribute('data-draw-calls'))).toBeGreaterThan(10)
+  await page.waitForTimeout(1500)
+  await page.locator('.world-stage').screenshot({path:`test-results/world-${id}.png`})
+ }
+ await page.getByRole('button',{name:'Open the gift',exact:true}).click()
+ await expect(canvas).toHaveAttribute('data-gift','opening')
+ await expect(canvas).toHaveAttribute('data-gift','open',{timeout:6000})
+ await expect(page.locator('.world-discovery')).toContainText('Your surprise message is waiting')
+ await page.getByRole('button',{name:'Replay the gift opening'}).click()
+ await expect(canvas).toHaveAttribute('data-gift','opening')
+ await expect(canvas).toHaveAttribute('data-gift','open',{timeout:6000})
+ await page.getByRole('button',{name:'Open the memory book',exact:true}).click()
+ await page.getByRole('button',{name:'Browse and add memories'}).click()
+ await expect(page).toHaveURL(/#memories$/)
+ expect(errors).toEqual([])
+})
+
+test('world controls work by keyboard at 320px and reduced motion finishes gift immediately',async({page})=>{
+ await page.setViewportSize({width:320,height:850});await page.emulateMedia({reducedMotion:'reduce'})
+ await page.goto('/#worlds')
+ await page.getByRole('button',{name:'Explore at your own pace',exact:true}).click()
+ const garden=page.getByRole('group',{name:'Choose a world',exact:true}).getByRole('button',{name:'Their little space',exact:true})
+ await expect(page.locator('.world-canvas canvas')).toBeVisible()
+ await garden.focus();await page.keyboard.press('Enter')
+ await page.getByRole('button',{name:'Open the gift',exact:true}).focus();await page.keyboard.press('Enter')
+ await expect(page.locator('.world-canvas')).toHaveAttribute('data-gift','open')
+ await expect(page.locator('.world-discovery')).toContainText('Your surprise message is waiting')
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+ const results=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21a','wcag21aa']).analyze()
+ expect(results.violations).toEqual([])
+})
+
+test('WebGL failure preserves all world destinations and keepsakes',async({page})=>{
+ await page.addInitScript(()=>{const original=HTMLCanvasElement.prototype.getContext;HTMLCanvasElement.prototype.getContext=function(this:HTMLCanvasElement,type:string,...args:unknown[]){if(type.includes('webgl'))return null;return Reflect.apply(original,this,[type,...args])} as typeof original})
+ await page.goto('/#worlds')
+ await page.getByRole('button',{name:'Explore at your own pace',exact:true}).click()
+ await expect(page.locator('.world-fallback')).toContainText('3D is unavailable')
+ await page.getByRole('group',{name:'Choose a world',exact:true}).getByRole('button',{name:'Baguio',exact:true}).click()
+ await page.getByRole('button',{name:'Open the reminder book',exact:true}).click()
+ const before=await page.locator('.world-discovery').textContent()
+ await page.getByRole('button',{name:'Turn to another reminder'}).click()
+ await expect(page.locator('.world-discovery')).not.toHaveText(before!)
+ await page.getByRole('group',{name:'Choose a world',exact:true}).getByRole('button',{name:'Their little space',exact:true}).click()
+ await page.getByRole('button',{name:'Open the gift',exact:true}).click()
+ await expect(page.locator('.world-discovery')).toContainText('Your surprise message is waiting')
+})

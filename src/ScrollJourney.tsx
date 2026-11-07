@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
+import gsap from 'gsap'
+import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import './scroll-journey.css'
 
 type Chapter = { id: string; range: [number, number]; location?: string; title: string; body: string }
 const chapters: Chapter[] = [
-  { id: 'origin', range: [0, .2], title: 'From where I am…', body: 'A little journey to where you are.' },
-  { id: 'north', range: [.2, .45], title: 'Every mile brings me closer.', body: 'The city falls behind. The road opens, and the horizon keeps changing.' },
+  { id: 'origin', range: [0, .2], location: 'Metro Manila, Philippines', title: 'From where I am…', body: 'A little journey to where you are.' },
+  { id: 'north', range: [.2, .45], location: 'Northbound', title: 'Every mile brings me closer.', body: 'The city falls behind. The road opens, and the horizon keeps changing.' },
   { id: 'baguio', range: [.45, .65], location: 'Baguio, Philippines', title: 'Where you chase your dreams.', body: 'A little closer to the world you’re building.' },
   { id: 'union', range: [.65, .85], location: 'La Union, Philippines', title: 'And finally, closer to you.', body: 'The mountains soften into sea air. This is where you are now.' },
-  { id: 'flowers', range: [.85, 1], title: 'These are for you.', body: 'Until I can give you flowers in person, I made these for you.' },
+  { id: 'flowers', range: [.85, 1], location: 'A little something for you', title: 'These are for you.', body: 'Until I can give you flowers in person, I made these for you.' },
 ]
 
 function chapterAt(progress: number) {
@@ -42,6 +44,7 @@ function makeCity() {
 export default function ScrollJourney() {
   const host = useRef<HTMLDivElement>(null)
   const bouquetRef = useRef<THREE.Group | undefined>(undefined)
+  const bouquetBaseScale = useRef(1)
   const cityRef = useRef<THREE.Group | undefined>(undefined)
   const progressRef = useRef(0)
   const [progress, setProgress] = useState(0)
@@ -49,17 +52,28 @@ export default function ScrollJourney() {
 
   useEffect(() => {
     reduced.current = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    const onScroll = () => {
-      const section = document.getElementById('journey')
-      if (!section) return
-      const max = section.offsetHeight - window.innerHeight
-      const value = max <= 0 ? 1 : THREE.MathUtils.clamp(-section.getBoundingClientRect().top / max, 0, 1)
-      setProgress(value)
+    const section = document.getElementById('journey')
+    if (!section) return
+    const proxy = { progress: 0 }
+    const update = () => {
+      const value = THREE.MathUtils.clamp(proxy.progress, 0, 1)
       progressRef.current = value
+      setProgress(value)
     }
-    onScroll(); window.addEventListener('scroll', onScroll, { passive: true })
-    return () => window.removeEventListener('scroll', onScroll)
+    gsap.registerPlugin(ScrollTrigger)
+    const context = gsap.context(() => {
+      section.style.display = 'block'
+      gsap.to(proxy, { progress: 1, ease: 'none', scrollTrigger: {
+        trigger: section, start: 'top top', end: '+=500%', pin: section, pinSpacing: true, anticipatePin: 1, scrub: reduced.current ? true : .35, invalidateOnRefresh: true,
+      }, onUpdate: update })
+    }, section)
+    update()
+    return () => {
+      context.revert()
+      section.style.display = ''
+    }
   }, [])
+
 
   useEffect(() => {
     const container = host.current
@@ -85,7 +99,7 @@ export default function ScrollJourney() {
         const gltf = await new GLTFLoader().loadAsync('/bouquet_v4.glb')
         const model = gltf.scene; model.name = 'custom-bouquet-v4'; model.visible = false
         const box = new THREE.Box3().setFromObject(model); const size = box.getSize(new THREE.Vector3()); const max = Math.max(size.x, size.y, size.z) || 1
-        model.scale.setScalar(4 / max); model.position.set(0, 0, -2.8); bouquetRef.current = model; scene.add(model); loaded = true
+        model.scale.setScalar(4 / max); bouquetBaseScale.current = model.scale.x; model.position.set(0, 0, -2.8); bouquetRef.current = model; scene.add(model); loaded = true
       } catch { /* the HTML conclusion remains usable if the optional model fails */ }
     }
     void loadBouquet()
@@ -93,31 +107,70 @@ export default function ScrollJourney() {
     const draw = () => {
       frame = requestAnimationFrame(draw)
       const p = progressRef.current
-      const cityFade = 1 - THREE.MathUtils.smoothstep(p, .12, .3)
-      if (cityRef.current) { cityRef.current.position.z = -p * 18; cityRef.current.position.y = p * .8; cityRef.current.rotation.y = p * .18; cityRef.current.traverse(object => { if (object instanceof THREE.Mesh) { const material = Array.isArray(object.material) ? object.material : [object.material]; material.forEach(item => { item.transparent = true; item.opacity = cityFade }) } }) }
+  const originFade = 1 - THREE.MathUtils.smoothstep(p, .1, .22)
+      if (cityRef.current) { cityRef.current.visible = originFade > 0; cityRef.current.position.z = -p * 9; cityRef.current.position.y = p * .35; cityRef.current.rotation.y = p * .08; cityRef.current.traverse(object => { if (object instanceof THREE.Mesh) { const material = Array.isArray(object.material) ? object.material : [object.material]; material.forEach(item => { item.transparent = true; item.opacity = originFade }) } }) }
       const road = THREE.MathUtils.smoothstep(p, .18, .48)
       camera.position.set(10 - road * 6, 7 + road * 2 + p * 1.5, 12 - p * 27)
       camera.lookAt(0, p > .8 ? 1 : 1.3, -p * 23)
-      if (bouquetRef.current) { const reveal = THREE.MathUtils.smoothstep(p, .78, .94); bouquetRef.current.visible = loaded && reveal > 0; bouquetRef.current.scale.setScalar((4 / Math.max(new THREE.Box3().setFromObject(bouquetRef.current).getSize(new THREE.Vector3()).y, .01)) * (.45 + reveal * .55)); bouquetRef.current.position.y = reveal * .35; bouquetRef.current.rotation.y = Math.sin(p * 2) * .08 }
+      const bouquetReveal = THREE.MathUtils.smoothstep(p, .78, .94)
+      if (bouquetRef.current) {
+        bouquetRef.current.visible = loaded && bouquetReveal > 0
+        bouquetRef.current.scale.setScalar(bouquetBaseScale.current * (.18 + bouquetReveal * .82))
+        bouquetRef.current.position.set(.2, bouquetReveal * .2, -25 + bouquetReveal * 2)
+        bouquetRef.current.rotation.y = Math.sin(p * Math.PI) * .06
+      }
       renderer.render(scene, camera)
     }
     draw()
-    return () => { cancelAnimationFrame(frame); window.removeEventListener('resize', resize); renderer.dispose(); container.removeChild(renderer.domElement); scene.traverse(object => { if (object instanceof THREE.Mesh) { object.geometry.dispose(); const materials = Array.isArray(object.material) ? object.material : [object.material]; materials.forEach(material => material.dispose()) } }) }
+    return () => {
+      cancelAnimationFrame(frame)
+      window.removeEventListener('resize', resize)
+      renderer.dispose()
+      if (renderer.domElement.parentElement === container) container.removeChild(renderer.domElement)
+      const dispose = new Set<THREE.BufferGeometry | THREE.Material>()
+      scene.traverse(object => {
+        if (object instanceof THREE.Mesh) {
+          dispose.add(object.geometry)
+          const materials = Array.isArray(object.material) ? object.material : [object.material]
+          materials.forEach(material => dispose.add(material))
+        }
+      })
+      dispose.forEach(resource => resource.dispose())
+    }
   }, [])
 
   const chapter = chapterAt(progress)
-  return <section id="journey" className="journey" aria-label="A scroll-driven journey" style={{ '--journey-progress': progress } as React.CSSProperties}>
+  const mountainWeight = THREE.MathUtils.smoothstep(progress, .38, .48) * (1 - THREE.MathUtils.smoothstep(progress, .70, .78))
+  const coastWeight = THREE.MathUtils.smoothstep(progress, .60, .68) * (1 - THREE.MathUtils.smoothstep(progress, .88, .96))
+  const travelWeight = THREE.MathUtils.smoothstep(progress, .16, .28) * (1 - THREE.MathUtils.smoothstep(progress, .82, .92))
+  const stageStyle = {
+    '--journey-progress': progress,
+    '--mountain-weight': mountainWeight,
+    '--coast-weight': coastWeight,
+    '--travel-weight': travelWeight,
+    '--mountain-parallax': `${(0.5 - progress) * 8}vh`,
+    '--coast-parallax': `${(0.5 - progress) * 7}vh`,
+    '--sky-warmth': `${1 - mountainWeight * .45}`,
+  } as React.CSSProperties
+  const restart = () => {
+    const section = document.getElementById('journey')
+    if (!section) return
+    const trigger = ScrollTrigger.getAll().find(item => item.trigger === section)
+    window.scrollTo({ top: trigger?.start ?? section.offsetTop, behavior: 'auto' })
+  }
+  return <section id="journey" className="journey" aria-label="A scroll-driven journey" style={stageStyle}>
     <div className="journey-sticky">
       <div ref={host} className="journey-canvas" aria-label="Interactive cinematic journey from Metro Manila toward Baguio and La Union" role="img" />
-      <div className="journey-sky" aria-hidden="true" />
+      <div className="journey-atmosphere" aria-hidden="true" data-mountains={mountainWeight.toFixed(3)} data-coast={coastWeight.toFixed(3)}><span className="journey-sky" /><span className="journey-horizon" /><span className="journey-ridge journey-ridge--far" /><span className="journey-ridge journey-ridge--near" /><span className="journey-pines" /><span className="journey-mist" /><span className="journey-coast" /><span className="journey-travel-line" /></div>
       <div className="journey-copy" key={chapter.id}>
         {chapter.location && <span className="journey-location">{chapter.location}</span>}
         <h1>{chapter.title}</h1><p>{chapter.body}</p>
       </div>
       <div className="journey-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)} aria-label="Journey progress"><span style={{ transform: `scaleX(${progress})` }} /></div>
       <span className="journey-scroll-hint">{progress < .98 ? 'Scroll to travel' : 'You made it here'}</span>
+      {progress >= .84 && <button className="journey-restart" onClick={restart}>Restart the journey</button>}
     </div>
-    <div className="journey-chapters" aria-hidden="true">{chapters.map(chapter => <span key={chapter.id}>{chapter.location ?? chapter.id}</span>)}</div>
+    <nav className="journey-chapters" aria-label="Journey chapters">{chapters.map(chapter => <a key={chapter.id} href="#journey" onClick={event => { event.preventDefault(); const section = document.getElementById('journey'); const trigger = ScrollTrigger.getAll().find(item => item.trigger === section); if (!section) return; const top = section.getBoundingClientRect().top + window.scrollY; window.scrollTo({ top: (trigger?.start ?? top) + section.clientHeight * ((chapter.range[0] + chapter.range[1]) / 2), behavior: 'auto' }) }}>{chapter.location ?? chapter.id}</a>)}</nav>
     <div className="journey-accessible"><h2>The route</h2><p>From Metro Manila, through Baguio where she studies nursing, toward La Union where she is now.</p><a href="#about">Skip to the rest of her space</a></div>
   </section>
 }
